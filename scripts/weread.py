@@ -150,7 +150,7 @@ def get_review_list(bookId):
 def check(bookId):
     """检查是否已经插入过 如果已经插入了就删除"""
     filter = {"property": "BookId", "rich_text": {"equals": bookId}}
-    response = client.databases.query(database_id=database_id, filter=filter)
+    response = query_notion_entries(filter=filter)
     for result in response["results"]:
         try:
             client.blocks.delete(block_id=result["id"])
@@ -170,7 +170,7 @@ def insert_to_notion(bookName, bookId, cover, sort, author, isbn, rating, catego
     """插入到notion"""
     if not cover or not cover.startswith("http"):
         cover = "https://www.notion.so/icons/book_gray.svg"
-    parent = {"database_id": database_id, "type": "database_id"}
+    parent = get_notion_parent()
     properties = {
         "BookName": get_title(bookName),
         "BookId": get_rich_text(bookId),
@@ -209,7 +209,7 @@ def insert_to_notion(bookName, bookId, cover, sort, author, isbn, rating, catego
 
     icon = get_icon(cover)
     # notion api 限制100个block
-    response = client.pages.create(parent=parent, icon=icon,cover=icon, properties=properties)
+    response = client.pages.create(parent=parent, icon=icon, cover=icon, properties=properties)
     id = response["id"]
     return id
 
@@ -262,12 +262,32 @@ def get_sort():
             "direction": "descending",
         }
     ]
-    response = client.databases.query(
-        database_id=database_id, filter=filter, sorts=sorts, page_size=1
-    )
+    response = query_notion_entries(filter=filter, sorts=sorts, page_size=1)
     if len(response.get("results")) == 1:
         return response.get("results")[0].get("properties").get("Sort").get("number")
     return 0
+
+
+def uses_data_source_api():
+    return hasattr(client, "data_sources") and hasattr(client.data_sources, "query")
+
+
+def get_notion_query_kwargs():
+    if uses_data_source_api():
+        return {"data_source_id": database_id}
+    return {"database_id": database_id}
+
+
+def get_notion_parent():
+    if uses_data_source_api():
+        return {"data_source_id": database_id, "type": "data_source_id"}
+    return {"database_id": database_id, "type": "database_id"}
+
+
+def query_notion_entries(**kwargs):
+    if uses_data_source_api():
+        return client.data_sources.query(**get_notion_query_kwargs(), **kwargs)
+    return client.databases.query(**get_notion_query_kwargs(), **kwargs)
 
 
 def get_children(chapter, summary, bookmark_list):
