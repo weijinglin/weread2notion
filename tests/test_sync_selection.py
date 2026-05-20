@@ -74,7 +74,27 @@ class SyncSelectionTests(unittest.TestCase):
 
         self.assertEqual([book["book"]["bookId"] for book in selected], ["newer"])
 
-    def test_get_review_list_keeps_all_non_summary_types_and_tags_note_type(self):
+    def test_get_bookmark_list_fetches_all_pages(self):
+        self.weread.weread = FakeWeRead(
+            [
+                {
+                    "hasMore": 1,
+                    "synckey": 100,
+                    "updated": [{"range": "11-12"}, {"range": "01-02"}],
+                },
+                {
+                    "hasMore": 0,
+                    "synckey": 200,
+                    "updated": [{"range": "21-22"}],
+                },
+            ]
+        )
+
+        bookmarks = self.weread.get_bookmark_list("book-id")
+
+        self.assertEqual([item["range"] for item in bookmarks], ["01-02", "11-12", "21-22"])
+
+    def test_get_review_list_keeps_all_non_summary_types(self):
         self.weread.weread = FakeWeRead(
             [
                 {
@@ -111,13 +131,8 @@ class SyncSelectionTests(unittest.TestCase):
 
         self.assertEqual(children[0]["type"], "heading_1")
         self.assertEqual(children[1]["callout"]["rich_text"][0]["text"]["content"], "正文")
-        self.assertEqual(len(grandchild[1]), 2)
         self.assertEqual(
-            grandchild[1][0]["callout"]["rich_text"][0]["text"]["content"],
-            "类型: 2",
-        )
-        self.assertEqual(
-            grandchild[1][1]["quote"]["rich_text"][0]["text"]["content"],
+            grandchild[1]["quote"]["rich_text"][0]["text"]["content"],
             "摘录",
         )
 

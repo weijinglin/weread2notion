@@ -82,8 +82,16 @@ def get_note_sort_key(item, chapter=None):
 @retry(stop_max_attempt_number=3, wait_fixed=5000)
 def get_bookmark_list(bookId):
     """获取我的划线"""
-    data = weread.request("/book/bookmarklist", bookId=bookId)
-    updated = data.get("updated") or []
+    updated = []
+    hasMore = 1
+    synckey = 0
+    while hasMore:
+        data = weread.request("/book/bookmarklist", bookId=bookId, synckey=synckey)
+        updated.extend(data.get("updated") or [])
+        hasMore = data.get("hasMore", 0)
+        synckey = data.get("synckey", 0)
+        if not data.get("updated"):
+            hasMore = 0
     return sorted(updated, key=get_note_sort_key)
 
 
@@ -140,14 +148,10 @@ def get_review_content(item):
 
 
 def get_note_metadata_children(item):
-    metadata_children = []
-    note_type = item.get("noteType")
-    if note_type is not None:
-        metadata_children.append(get_callout(f"类型: {note_type}"))
     abstract = item.get("abstract") or ""
     if abstract:
-        metadata_children.append(get_quote(abstract))
-    return metadata_children
+        return get_quote(abstract)
+    return None
 
 
 @retry(stop_max_attempt_number=3, wait_fixed=5000)
