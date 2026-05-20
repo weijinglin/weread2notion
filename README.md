@@ -17,11 +17,16 @@
 
 在 GitHub 仓库的 `Settings -> Secrets and variables -> Actions -> Repository secrets` 中配置：
 
+当前默认会全量重刷微信读书返回的全部笔记本，避免旧书新增笔记被漏同步。
+如果你的书库很大、并且可以接受旧书新笔记可能漏同步，可以手动加上 `--incremental` 仅同步较新的书。
+
 | Secret | 说明 |
 | --- | --- |
 | `WEREAD_API_KEY` | 微信读书 API Key |
 | `NOTION_TOKEN` | Notion Integration Token |
 | `NOTION_PAGE` 或 `NOTION_DATABASE_ID` | 目标 Notion 数据库页面链接或数据库 ID |
+
+首次使用新版脚本前，请在 Notion 数据库中新增一个 `NoteCount` 数字属性，用于记录每本书同步出来的笔记数量。
 
 ![扫码_搜索联合传播样式-标准色版](https://github.com/malinkang/weread2notion/assets/3365208/191900c6-958e-4f9b-908d-a40a54889b5e)
 

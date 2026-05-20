@@ -127,6 +127,30 @@ def get_bookinfo(bookId):
 
 
 @retry(stop_max_attempt_number=3, wait_fixed=5000)
+def normalize_review_item(item):
+    review = item.get("review") or item or {}
+    normalized = dict(review)
+    normalized["noteType"] = normalized.get("type")
+    normalized["markText"] = normalized.get("content") or normalized.get("markText") or ""
+    return normalized
+
+
+def get_review_content(item):
+    return item.get("markText") or item.get("content") or ""
+
+
+def get_note_metadata_children(item):
+    metadata_children = []
+    note_type = item.get("noteType")
+    if note_type is not None:
+        metadata_children.append(get_callout(f"类型: {note_type}"))
+    abstract = item.get("abstract") or ""
+    if abstract:
+        metadata_children.append(get_quote(abstract))
+    return metadata_children
+
+
+@retry(stop_max_attempt_number=3, wait_fixed=5000)
 def get_review_list(bookId):
     """获取笔记"""
     reviews_data = []
@@ -140,10 +164,9 @@ def get_review_list(bookId):
         reviews_data.extend(batch)
         if not batch:
             hasMore = 0
-    summary = list(filter(lambda x: (x.get("review") or {}).get("type") == 4, reviews_data))
-    reviews = list(filter(lambda x: (x.get("review") or {}).get("type") == 1, reviews_data))
-    reviews = list(map(lambda x: x.get("review") or {}, reviews))
-    reviews = list(map(lambda x: {**x, "markText": x.pop("content", "")}, reviews))
+    normalized_reviews = [normalize_review_item(item) for item in reviews_data]
+    summary = [item for item in normalized_reviews if item.get("noteType") == 4]
+    reviews = [item for item in normalized_reviews if item.get("noteType") != 4]
     return summary, reviews
 
 
@@ -166,7 +189,7 @@ def get_chapter_info(bookId):
     return {item["chapterUid"]: item for item in chapters if "chapterUid" in item}
 
 
-def insert_to_notion(bookName, bookId, cover, sort, author, isbn, rating, categories):
+def insert_to_notion(bookName, bookId, cover, sort, author, isbn, rating, categories, note_count):
     """插入到notion"""
     if not cover or not cover.startswith("http"):
         cover = "https://www.notion.so/icons/book_gray.svg"
@@ -182,6 +205,7 @@ def insert_to_notion(bookName, bookId, cover, sort, author, isbn, rating, catego
         "Sort": get_number(sort),
         "Rating": get_number(rating),
         "Cover": get_file(cover),
+        "NoteCount": get_number(note_count),
     }
     if categories != None:
         properties["Categories"] = get_multi_select(categories)
@@ -229,7 +253,8 @@ def add_grandchild(grandchild, results):
     for key, value in grandchild.items():
         time.sleep(0.3)
         id = results[key].get("id")
-        client.blocks.children.append(block_id=id, children=[value])
+        children = value if isinstance(value, list) else [value]
+        client.blocks.children.append(block_id=id, children=children)
 
 
 def get_notebooklist():
@@ -251,6 +276,12 @@ def get_notebooklist():
             hasMore = 0
     books.sort(key=lambda x: x.get("sort") or 0)
     return books
+
+
+def select_books_to_sync(books, latest_sort, incremental=False):
+    if not incremental:
+        return books
+    return [book for book in books if (book.get("sort") or 0) > latest_sort]
 
 
 def get_sort():
@@ -288,6 +319,18 @@ def query_notion_entries(**kwargs):
     if uses_data_source_api():
         return client.data_sources.query(**get_notion_query_kwargs(), **kwargs)
     return client.databases.query(**get_notion_query_kwargs(), **kwargs)
+
+
+def append_note_children(children, grandchild, note):
+    mark_text = get_review_content(note)
+    if not mark_text:
+        return False
+    for j in range(0, len(mark_text) // 2000 + 1):
+        children.append(get_callout(mark_text[j * 2000 : (j + 1) * 2000]))
+    metadata_children = get_note_metadata_children(note)
+    if metadata_children:
+        grandchild[len(children) - 1] = metadata_children
+    return True
 
 
 def get_children(chapter, summary, bookmark_list):
@@ -374,37 +417,16 @@ def get_children(chapter, summary, bookmark_list):
                 previous_path_uids = []
 
             for i in group["bookmarks"]:
-                markText = i.get("markText") or ""
-                if not markText:
-                    continue
-                for j in range(0, len(markText) // 2000 + 1):
-                    children.append(
-                        get_callout(markText[j * 2000 : (j + 1) * 2000])
-                    )
-                if i.get("abstract") != None and i.get("abstract") != "":
-                    quote = get_quote(i.get("abstract"))
-                    grandchild[len(children) - 1] = quote
+                append_note_children(children, grandchild, i)
 
     else:
         # 如果没有章节信息
         for data in bookmark_list:
-            markText = data.get("markText") or ""
-            if not markText:
-                continue
-            for i in range(0, len(markText) // 2000 + 1):
-                children.append(
-                    get_callout(markText[i * 2000 : (i + 1) * 2000])
-                )
+            append_note_children(children, grandchild, data)
     if summary != None and len(summary) > 0:
         children.append(get_heading(1, "点评"))
         for i in summary:
-            content = (i.get("review") or {}).get("content") or ""
-            if not content:
-                continue
-            for j in range(0, len(content) // 2000 + 1):
-                children.append(
-                    get_callout(content[j * 2000 : (j + 1) * 2000])
-                )
+            append_note_children(children, grandchild, i)
     return children, grandchild
 
 
@@ -469,6 +491,11 @@ def extract_page_id():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help="只同步 Sort 大于 Notion 中最新记录的书，速度更快，但可能漏掉旧书新增的笔记。",
+    )
     options = parser.parse_args()
     database_id = extract_page_id()
     notion_token = os.getenv("NOTION_TOKEN")
@@ -476,13 +503,13 @@ if __name__ == "__main__":
         raise Exception("没有找到 NOTION_TOKEN，请在 GitHub Actions Secrets 中配置")
     weread = WeReadGatewayClient(os.getenv("WEREAD_API_KEY"))
     client = Client(auth=notion_token, log_level=logging.ERROR)
-    latest_sort = get_sort()
-    books = get_notebooklist()
+    latest_sort = get_sort() if options.incremental else 0
+    books = select_books_to_sync(
+        get_notebooklist(), latest_sort, incremental=options.incremental
+    )
     if books != None:
         for index, book in enumerate(books):
-            sort = book["sort"]
-            if sort <= latest_sort:
-                continue
+            sort = book.get("sort") or 0
             book = book.get("book") or book
             title = book.get("title") or ""
             cover = (book.get("cover") or "").replace("/s_", "/t7_")
@@ -496,9 +523,6 @@ if __name__ == "__main__":
             print(f"正在同步 {title} ,一共{len(books)}本，当前是第{index+1}本。")
             check(bookId)
             isbn, rating = get_bookinfo(bookId)
-            id = insert_to_notion(
-                title, bookId, cover, sort, author, isbn, rating, categories
-            )
             chapter = get_chapter_info(bookId)
             bookmark_list = get_bookmark_list(bookId)
             summary, reviews = get_review_list(bookId)
@@ -506,6 +530,12 @@ if __name__ == "__main__":
             bookmark_list = sorted(
                 bookmark_list,
                 key=lambda x: get_note_sort_key(x, chapter),
+            )
+            note_count = len([item for item in bookmark_list if get_review_content(item)]) + len([
+                item for item in summary if get_review_content(item)
+            ])
+            id = insert_to_notion(
+                title, bookId, cover, sort, author, isbn, rating, categories, note_count
             )
             children, grandchild = get_children(chapter, summary, bookmark_list)
             results = add_children(id, children)
