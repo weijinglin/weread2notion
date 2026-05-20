@@ -162,6 +162,16 @@ class SyncSelectionTests(unittest.TestCase):
             "摘录",
         )
 
+    def test_expected_review_count_should_come_from_notebook_item_not_nested_book(self):
+        notebook_item = {
+            "reviewCount": 159,
+            "book": {"bookId": "book-id", "title": "Book"},
+        }
+
+        expected_review_count = self.weread.get_expected_review_count(notebook_item)
+
+        self.assertEqual(expected_review_count, 159)
+
     def test_insert_to_notion_writes_note_count_property(self):
         self.weread.client = FakeClient()
         self.weread.database_id = "database-id"

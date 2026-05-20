@@ -276,6 +276,10 @@ def get_notebooklist():
     return books
 
 
+def get_expected_review_count(notebook_item):
+    return notebook_item.get("reviewCount") or 100
+
+
 def select_books_to_sync(books, latest_sort, incremental=False):
     if not incremental:
         return books
@@ -507,8 +511,10 @@ if __name__ == "__main__":
     )
     if books != None:
         for index, book in enumerate(books):
-            sort = book.get("sort") or 0
-            book = book.get("book") or book
+            notebook_item = book
+            sort = notebook_item.get("sort") or 0
+            expected_review_count = get_expected_review_count(notebook_item)
+            book = notebook_item.get("book") or notebook_item
             title = book.get("title") or ""
             cover = (book.get("cover") or "").replace("/s_", "/t7_")
             bookId = book.get("bookId")
@@ -523,7 +529,6 @@ if __name__ == "__main__":
             isbn, rating = get_bookinfo(bookId)
             chapter = get_chapter_info(bookId)
             bookmark_list = get_bookmark_list(bookId)
-            expected_review_count = book.get("reviewCount") or 100
             summary, reviews = get_review_list(bookId, expected_count=expected_review_count)
             bookmark_list.extend(reviews)
             bookmark_list = sorted(
