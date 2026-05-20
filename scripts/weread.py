@@ -155,19 +155,13 @@ def get_note_metadata_children(item):
 
 
 @retry(stop_max_attempt_number=3, wait_fixed=5000)
-def get_review_list(bookId):
+def get_review_list(bookId, expected_count=100):
     """获取笔记"""
-    reviews_data = []
-    hasMore = 1
-    synckey = 0
-    while hasMore:
-        data = weread.request("/review/list/mine", bookid=bookId, synckey=synckey, count=100)
-        hasMore = data.get("hasMore", 0)
-        synckey = data.get("synckey", 0)
-        batch = data.get("reviews") or []
-        reviews_data.extend(batch)
-        if not batch:
-            hasMore = 0
+    request_count = max(expected_count or 0, 100)
+    data = weread.request(
+        "/review/list/mine", bookid=bookId, synckey=0, count=request_count
+    )
+    reviews_data = data.get("reviews") or []
     normalized_reviews = [normalize_review_item(item) for item in reviews_data]
     summary = [item for item in normalized_reviews if item.get("noteType") == 4]
     reviews = [item for item in normalized_reviews if item.get("noteType") != 4]
@@ -529,7 +523,8 @@ if __name__ == "__main__":
             isbn, rating = get_bookinfo(bookId)
             chapter = get_chapter_info(bookId)
             bookmark_list = get_bookmark_list(bookId)
-            summary, reviews = get_review_list(bookId)
+            expected_review_count = book.get("reviewCount") or 100
+            summary, reviews = get_review_list(bookId, expected_count=expected_review_count)
             bookmark_list.extend(reviews)
             bookmark_list = sorted(
                 bookmark_list,

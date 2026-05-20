@@ -94,6 +94,32 @@ class SyncSelectionTests(unittest.TestCase):
 
         self.assertEqual([item["range"] for item in bookmarks], ["01-02", "11-12", "21-22"])
 
+    def test_get_review_list_uses_expected_review_count_as_request_count(self):
+        captured = {}
+
+        class CapturingWeRead(FakeWeRead):
+            def request(self, api_name, **kwargs):
+                captured["api_name"] = api_name
+                captured["kwargs"] = kwargs
+                return super().request(api_name, **kwargs)
+
+        self.weread.weread = CapturingWeRead(
+            [
+                {
+                    "hasMore": 0,
+                    "synckey": 123,
+                    "reviews": [
+                        {"review": {"type": 1, "content": "note one", "chapterUid": 1}},
+                    ],
+                }
+            ]
+        )
+
+        self.weread.get_review_list("book-id", expected_count=159)
+
+        self.assertEqual(captured["api_name"], "/review/list/mine")
+        self.assertEqual(captured["kwargs"]["count"], 159)
+
     def test_get_review_list_keeps_all_non_summary_types(self):
         self.weread.weread = FakeWeRead(
             [
@@ -109,7 +135,7 @@ class SyncSelectionTests(unittest.TestCase):
             ]
         )
 
-        summary, reviews = self.weread.get_review_list("book-id")
+        summary, reviews = self.weread.get_review_list("book-id", expected_count=100)
 
         self.assertEqual([item["noteType"] for item in summary], [4])
         self.assertEqual([item["noteType"] for item in reviews], [1, 2])
